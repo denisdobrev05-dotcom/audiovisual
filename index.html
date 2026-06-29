@@ -1,0 +1,705 @@
+<!DOCTYPE html>
+<html lang="bg">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="theme-color" content="#050512">
+<title>Аудио Визуализатор</title>
+<link rel="manifest" href="manifest.json">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#050512;--c1:#00ffff;--c2:#ff00ff;--c3:#00ff88}
+html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:#fff;
+  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  -webkit-user-select:none;user-select:none;touch-action:none}
+#cv{position:fixed;top:0;left:0;width:100%;height:100%;display:block}
+
+/* ── Start overlay ── */
+#ov{
+  position:fixed;inset:0;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:22px;
+  background:rgba(5,5,18,.97);z-index:100
+}
+#ov h1{
+  font-size:clamp(1.35rem,4.5vw,2.1rem);font-weight:300;
+  letter-spacing:.28em;text-transform:uppercase;
+  color:var(--c1);text-shadow:0 0 28px var(--c1)
+}
+#ov p{color:rgba(255,255,255,.48);font-size:.85rem;text-align:center;max-width:300px;line-height:1.72}
+#sb{
+  padding:13px 38px;border:1px solid var(--c1);background:transparent;
+  color:var(--c1);font-size:.93rem;letter-spacing:.16em;text-transform:uppercase;
+  cursor:pointer;border-radius:3px;transition:all .3s;
+  box-shadow:0 0 20px rgba(0,255,255,.14);-webkit-tap-highlight-color:transparent
+}
+#sb:hover,#sb:active{background:rgba(0,255,255,.1);box-shadow:0 0 32px rgba(0,255,255,.35)}
+
+/* ── Drop overlay ── */
+#dov{
+  position:fixed;inset:0;display:none;align-items:center;justify-content:center;
+  background:rgba(0,255,255,.04);border:2px dashed var(--c1);
+  z-index:50;font-size:1.3rem;color:var(--c1);pointer-events:none;letter-spacing:.12em
+}
+#dov.on{display:flex}
+
+/* ── Controls ── */
+#ctrl{
+  position:fixed;bottom:0;left:0;right:0;padding:10px 12px 18px;
+  background:linear-gradient(to top,rgba(0,0,0,.92) 0%,rgba(0,0,0,0) 100%);
+  display:flex;flex-direction:column;gap:8px;z-index:10;
+  transition:opacity .5s,transform .5s
+}
+#ctrl.hide{opacity:0;transform:translateY(100%);pointer-events:none}
+.row{display:flex;align-items:center;gap:7px;flex-wrap:wrap;justify-content:center}
+.btn{
+  padding:6px 13px;border:1px solid rgba(255,255,255,.18);
+  background:rgba(255,255,255,.05);color:rgba(255,255,255,.8);font-size:.74rem;
+  cursor:pointer;border-radius:4px;transition:all .2s;
+  -webkit-tap-highlight-color:transparent;letter-spacing:.04em;white-space:nowrap
+}
+.btn:hover{background:rgba(255,255,255,.14)}
+.btn.on{border-color:var(--c1);color:var(--c1);background:rgba(0,255,255,.09);box-shadow:0 0 9px rgba(0,255,255,.28)}
+.btn.mon{border-color:#ff4444;color:#ff4444;background:rgba(255,68,68,.08);box-shadow:0 0 9px rgba(255,68,68,.28)}
+
+/* slider */
+.slw{display:flex;align-items:center;gap:7px;color:rgba(255,255,255,.52);font-size:.71rem}
+input[type=range]{-webkit-appearance:none;width:82px;height:3px;background:rgba(255,255,255,.2);border-radius:2px;outline:none;cursor:pointer}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:13px;height:13px;border-radius:50%;background:var(--c1);cursor:pointer;box-shadow:0 0 6px var(--c1)}
+input[type=range]::-moz-range-thumb{width:13px;height:13px;border-radius:50%;background:var(--c1);cursor:pointer;border:none}
+
+/* seek */
+#sk{display:none;align-items:center;gap:8px;width:100%;max-width:520px;margin:0 auto}
+#sk.on{display:flex}
+#skb{flex:1;-webkit-appearance:none;height:3px;background:rgba(255,255,255,.2);border-radius:2px;outline:none;cursor:pointer}
+#skb::-webkit-slider-thumb{-webkit-appearance:none;width:12px;height:12px;border-radius:50%;background:var(--c1);cursor:pointer}
+#td{font-size:.67rem;color:rgba(255,255,255,.42);min-width:74px;text-align:center}
+
+select{background:rgba(0,0,0,.7);border:1px solid rgba(255,255,255,.18);color:rgba(255,255,255,.65);padding:5px 7px;border-radius:4px;font-size:.71rem;outline:none;cursor:pointer}
+#fi{display:none}
+
+/* viz label */
+#vn{
+  position:fixed;top:14px;left:50%;transform:translateX(-50%);
+  color:rgba(255,255,255,.28);font-size:.62rem;letter-spacing:.22em;
+  text-transform:uppercase;pointer-events:none;z-index:5;
+  transition:opacity 1.4s
+}
+#vn.gone{opacity:0}
+</style>
+</head>
+<body>
+
+<div id="ov">
+  <h1>Аудио Визуализатор</h1>
+  <p>Пусни файл или включи микрофона и виж звука в реално време</p>
+  <button id="sb">✦ Старт</button>
+</div>
+
+<div id="dov">Пусни аудио файл</div>
+
+<canvas id="cv"></canvas>
+<div id="vn">Вълна</div>
+
+<div id="ctrl">
+  <div id="sk">
+    <span id="td">0:00 / 0:00</span>
+    <input type="range" id="skb" min="0" max="100" value="0" step="0.05">
+  </div>
+  <div class="row">
+    <button class="btn" id="bfi">📁 Файл</button>
+    <input type="file" id="fi" accept="audio/*">
+    <button class="btn" id="bmi">🎙 Mic</button>
+    <button class="btn" id="bpl" style="display:none">▶</button>
+  </div>
+  <div class="row" id="vrow">
+    <button class="btn on" data-v="0">1·Вълна</button>
+    <button class="btn" data-v="1">2·Спектър</button>
+    <button class="btn" data-v="2">3·Радиал</button>
+    <button class="btn" data-v="3">4·Частици</button>
+    <button class="btn" data-v="4">5·Blob</button>
+  </div>
+  <div class="row">
+    <div class="slw"><span>Сила</span>
+      <input type="range" id="gsl" min="0.3" max="4" step="0.05" value="1.5">
+    </div>
+    <button class="btn" id="bth">🎨 Неон</button>
+    <select id="ffs">
+      <option value="512">FFT 512</option>
+      <option value="1024">FFT 1024</option>
+      <option value="2048" selected>FFT 2048</option>
+      <option value="4096">FFT 4096</option>
+      <option value="8192">FFT 8192</option>
+    </select>
+    <button class="btn" id="bfs">⛶</button>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+// ════════════════════════════════════════════════════════════════
+//  CONFIG
+// ════════════════════════════════════════════════════════════════
+const THEMES = [
+  { name:'Неон',  bg:'#050512', c1:'#00ffff', c2:'#ff00ff', c3:'#00ff88',
+    r1:[0,255,255],   r2:[255,0,255],   r3:[0,255,136]  },
+  { name:'Залез', bg:'#0a0308', c1:'#ff6b35', c2:'#ff3366', c3:'#ffcd3c',
+    r1:[255,107,53],  r2:[255,51,102],  r3:[255,205,60] },
+  { name:'Моно',  bg:'#000000', c1:'#eeeeee', c2:'#888888', c3:'#555555',
+    r1:[238,238,238], r2:[136,136,136], r3:[85,85,85]   },
+];
+const VIZ = ['Вълна','Спектър','Радиален','Частици','Blob'];
+const SK  = 0.13;   // exponential-smoothing coeff for FFT data
+const SKB = 0.10;   // band energy smoothing
+const NP  = 280;    // particle count
+const BN  = 180;    // blob segments
+
+// ════════════════════════════════════════════════════════════════
+//  STATE
+// ════════════════════════════════════════════════════════════════
+let actx=null, analyser=null, outGain=null;
+let curSrc=null, micStream=null, audioEl=null;
+let isMic=false, playing=false, started=false;
+let vizMode=0, themeIdx=0, theme=THEMES[0], gainVal=1.5;
+
+// FFT buffers — rebuilt only on fftSize change
+let fftSize=2048, bufLen=1024;
+let freqBuf = new Uint8Array(bufLen);
+let timeBuf = new Uint8Array(fftSize);
+let sFreq   = new Float32Array(bufLen);   // smoothed 0..~1.5
+let sTime   = new Float32Array(fftSize);  // smoothed -~1.5..~1.5
+
+// Band energies
+let sBass=0, sMid=0, sTreb=0;
+
+// Canvas
+const canvas = document.getElementById('cv');
+const C = canvas.getContext('2d');
+let W=0, H=0, DPR=1;
+
+// Particles (pre-allocated — no heap alloc in loop)
+const px=new Float32Array(NP), py=new Float32Array(NP);
+const pvx=new Float32Array(NP), pvy=new Float32Array(NP);
+const pbx=new Float32Array(NP), pby=new Float32Array(NP);
+const psz=new Float32Array(NP);
+let pInited=false;
+
+// Blob (pre-allocated)
+const bX=new Float32Array(BN), bY=new Float32Array(BN);
+
+// Pre-computed bar colors (rebuilt on theme/bars change)
+let barColors = [];
+let lastBars  = 0;
+
+// Computed theme strings (no per-frame hex parsing)
+let tsBg='', ts1='', ts2='', ts3='';
+
+// DOM
+const ovEl  = document.getElementById('ov');
+const dovEl = document.getElementById('dov');
+const vnEl  = document.getElementById('vn');
+const ctrlEl= document.getElementById('ctrl');
+const skEl  = document.getElementById('sk');
+const skbEl = document.getElementById('skb');
+const tdEl  = document.getElementById('td');
+const bfiEl = document.getElementById('bfi');
+const fiEl  = document.getElementById('fi');
+const bmiEl = document.getElementById('bmi');
+const bplEl = document.getElementById('bpl');
+const bthEl = document.getElementById('bth');
+const ffsEl = document.getElementById('ffs');
+const gslEl = document.getElementById('gsl');
+const bfsEl = document.getElementById('bfs');
+const vBtns = [...document.querySelectorAll('[data-v]')];
+
+// ════════════════════════════════════════════════════════════════
+//  AUDIO SETUP
+// ════════════════════════════════════════════════════════════════
+function initAudio() {
+  if (actx) return;
+  actx     = new (window.AudioContext || window.webkitAudioContext)();
+  analyser = actx.createAnalyser();
+  analyser.fftSize = fftSize;
+  analyser.smoothingTimeConstant = 0.82;
+  outGain  = actx.createGain();
+  outGain.gain.value = 1;
+  analyser.connect(outGain);
+  outGain.connect(actx.destination);
+  rebuildBufs();
+}
+
+function rebuildBufs() {
+  bufLen  = analyser.frequencyBinCount;
+  freqBuf = new Uint8Array(bufLen);
+  sFreq   = new Float32Array(bufLen);
+  timeBuf = new Uint8Array(analyser.fftSize);
+  sTime   = new Float32Array(analyser.fftSize);
+  lastBars = 0; // force color rebuild
+}
+
+// ════════════════════════════════════════════════════════════════
+//  SOURCE MANAGEMENT
+// ════════════════════════════════════════════════════════════════
+function stopSrc() {
+  if (curSrc)   { try { curSrc.disconnect(); } catch(e){} curSrc=null; }
+  if (audioEl)  { audioEl.pause(); try { URL.revokeObjectURL(audioEl.src); } catch(e){} audioEl=null; }
+  if (micStream){ micStream.getTracks().forEach(t=>t.stop()); micStream=null; }
+  isMic=false; playing=false;
+  bmiEl.className='btn'; bmiEl.textContent='🎙 Mic';
+  bplEl.style.display='none'; skEl.className='';
+  outGain && (outGain.gain.value=1);
+}
+
+async function loadFile(file) {
+  if (!actx) return;
+  if (actx.state==='suspended') await actx.resume();
+  stopSrc();
+  outGain.gain.value = 1;
+  audioEl = new Audio();
+  audioEl.src = URL.createObjectURL(file);
+  const src = actx.createMediaElementSource(audioEl);
+  src.connect(analyser);
+  curSrc = src;
+  audioEl.addEventListener('timeupdate', updateSeek);
+  audioEl.addEventListener('ended', ()=>{ playing=false; bplEl.textContent='▶'; });
+  audioEl.addEventListener('loadedmetadata', ()=>{
+    skbEl.max = audioEl.duration || 100;
+    skEl.className='on'; bplEl.style.display='';
+  });
+  await audioEl.play().catch(()=>{});
+  playing=true; bplEl.textContent='⏸';
+}
+
+async function toggleMic() {
+  if (!actx) return;
+  if (actx.state==='suspended') await actx.resume();
+  if (isMic) { stopSrc(); return; }
+  stopSrc();
+  outGain.gain.value = 0; // mute: avoid speaker feedback
+  try {
+    micStream = await navigator.mediaDevices.getUserMedia({audio:true,video:false});
+    const src = actx.createMediaStreamSource(micStream);
+    src.connect(analyser);
+    curSrc = src; isMic = true;
+    bmiEl.className='btn mon'; bmiEl.textContent='🔴 Mic вкл.';
+  } catch(err) {
+    outGain.gain.value = 1;
+    alert('Микрофон: ' + err.message);
+  }
+}
+
+function updateSeek() {
+  if (!audioEl) return;
+  const t=audioEl.currentTime, d=audioEl.duration||0;
+  skbEl.value = t;
+  tdEl.textContent = fmt(t) + ' / ' + fmt(d);
+}
+const fmt = s => { s=~~(s||0); return ~~(s/60)+':'+(''+(s%60)).padStart(2,'0'); };
+
+// ════════════════════════════════════════════════════════════════
+//  CANVAS / RESIZE
+// ════════════════════════════════════════════════════════════════
+function resize() {
+  DPR = Math.min(window.devicePixelRatio||1, 2);
+  W = window.innerWidth; H = window.innerHeight;
+  canvas.width  = W*DPR; canvas.height = H*DPR;
+  canvas.style.width  = W+'px'; canvas.style.height = H+'px';
+  C.setTransform(DPR,0,0,DPR,0,0);
+  pInited=false; lastBars=0;
+}
+
+// ════════════════════════════════════════════════════════════════
+//  ANALYSIS
+// ════════════════════════════════════════════════════════════════
+function analyse() {
+  if (!analyser) return;
+  analyser.getByteFrequencyData(freqBuf);
+  analyser.getByteTimeDomainData(timeBuf);
+  const g = gainVal;
+  for (let i=0; i<bufLen; i++) {
+    const v = (freqBuf[i]/255)*g;
+    sFreq[i] += SK*(v-sFreq[i]);
+  }
+  const tl = timeBuf.length;
+  for (let i=0; i<tl; i++) {
+    const v = (timeBuf[i]/128-1)*g;
+    sTime[i] += SK*(v-sTime[i]);
+  }
+  // Band split: bass 0-8%, mid 8-45%, treble 45-100%
+  const b0=bufLen*.08|0, b1=bufLen*.45|0;
+  let bs=0,ms=0,ts=0;
+  for (let i=0;i<b0;i++)     bs+=sFreq[i];
+  for (let i=b0;i<b1;i++)    ms+=sFreq[i];
+  for (let i=b1;i<bufLen;i++) ts+=sFreq[i];
+  const bass = Math.min(bs/b0, 2);
+  const mid  = Math.min(ms/(b1-b0), 2);
+  const treb = Math.min(ts/(bufLen-b1), 2);
+  sBass += SKB*(bass-sBass);
+  sMid  += SKB*(mid -sMid);
+  sTreb += SKB*(treb-sTreb);
+}
+
+// ════════════════════════════════════════════════════════════════
+//  COLOR HELPERS
+// ════════════════════════════════════════════════════════════════
+function lerpRGB(t) {
+  const [r1,g1,b1]=theme.r1, [r2,g2,b2]=theme.r2, [r3,g3,b3]=theme.r3;
+  let r,g,b;
+  if (t<.5){const s=t*2; r=r1+s*(r2-r1); g=g1+s*(g2-g1); b=b1+s*(b2-b1);}
+  else     {const s=(t-.5)*2; r=r2+s*(r3-r2); g=g2+s*(g3-g2); b=b2+s*(b3-b2);}
+  return `rgba(${r|0},${g|0},${b|0},`;
+}
+
+function rebuildBarColors(bars) {
+  if (bars===lastBars && barColors.length) return;
+  barColors.length = bars;
+  for (let i=0;i<bars;i++) barColors[i] = lerpRGB(i/bars);
+  lastBars = bars;
+}
+
+function applyTheme() {
+  theme = THEMES[themeIdx];
+  const bg = theme.bg;
+  const r  = parseInt(bg.slice(1,3),16);
+  const g  = parseInt(bg.slice(3,5),16);
+  const b  = parseInt(bg.slice(5,7),16);
+  tsBg = `rgba(${r},${g},${b},`;
+  ts1  = theme.r1.join(',');
+  ts2  = theme.r2.join(',');
+  ts3  = theme.r3.join(',');
+  document.documentElement.style.setProperty('--bg', theme.bg);
+  document.documentElement.style.setProperty('--c1', theme.c1);
+  document.documentElement.style.setProperty('--c2', theme.c2);
+  document.documentElement.style.setProperty('--c3', theme.c3);
+  bthEl.textContent = '🎨 '+theme.name;
+  lastBars=0; pInited=false;
+}
+
+// ════════════════════════════════════════════════════════════════
+//  VIZ 1 — WAVEFORM
+// ════════════════════════════════════════════════════════════════
+function drawWave() {
+  C.clearRect(0,0,W,H);
+  const tl = sTime.length;
+  const glow = 8+sBass*30;
+  C.save();
+  C.shadowBlur=glow; C.shadowColor=theme.c1;
+  C.strokeStyle=theme.c1; C.lineWidth=2+sBass*3.5;
+  C.lineCap='round'; C.lineJoin='round';
+  C.beginPath();
+  for (let i=0;i<tl;i++) {
+    const x=i/(tl-1)*W, y=H*.5+sTime[i]*H*.38;
+    i?C.lineTo(x,y):C.moveTo(x,y);
+  }
+  C.stroke();
+  // ghost
+  C.globalAlpha=.22; C.lineWidth=1;
+  C.shadowColor=theme.c2; C.strokeStyle=theme.c2;
+  C.beginPath();
+  for (let i=0;i<tl;i++) {
+    const x=i/(tl-1)*W, y=H*.5+sTime[i]*H*.38+5;
+    i?C.lineTo(x,y):C.moveTo(x,y);
+  }
+  C.stroke();
+  C.restore();
+}
+
+// ════════════════════════════════════════════════════════════════
+//  VIZ 2 — SPECTRUM BARS
+// ════════════════════════════════════════════════════════════════
+function drawSpectrum() {
+  C.clearRect(0,0,W,H);
+  const bars = Math.min(bufLen, Math.floor(W/2.2))|0;
+  rebuildBarColors(bars);
+  const bw   = W/bars;
+  const step = bufLen/bars;
+
+  // Glow pass — wide bars, low alpha
+  C.globalAlpha=.28;
+  for (let i=0;i<bars;i++) {
+    const v=sFreq[i*step|0]; if(v<.005) continue;
+    C.fillStyle = barColors[i]+'1)';
+    C.fillRect(i*bw, H-v*H*.88, bw*2.5, v*H*.88);
+  }
+  // Main pass
+  C.globalAlpha=1;
+  const grad = C.createLinearGradient(0,H,0,0);
+  grad.addColorStop(0,  theme.c1);
+  grad.addColorStop(.5, theme.c2);
+  grad.addColorStop(1,  theme.c3);
+  C.fillStyle=grad;
+  C.shadowColor=theme.c1; C.shadowBlur=6+sMid*18;
+  for (let i=0;i<bars;i++) {
+    const v=sFreq[i*step|0]; if(v<.005) continue;
+    C.fillRect(i*bw+.4, H-v*H*.88, bw-.7, v*H*.88);
+  }
+  C.shadowBlur=0;
+}
+
+// ════════════════════════════════════════════════════════════════
+//  VIZ 3 — RADIAL SPECTRUM
+// ════════════════════════════════════════════════════════════════
+function drawRadial() {
+  C.clearRect(0,0,W,H);
+  const cx=W*.5, cy=H*.5;
+  const r0   = Math.min(W,H)*.13;
+  const rMax = Math.min(W,H)*.44;
+  const bars = Math.min(bufLen,256)|0;
+  const step = bufLen/bars;
+  const dA   = (Math.PI*2)/bars;
+  const lw   = Math.max(1,(Math.PI*2*r0/bars)*.72);
+  rebuildBarColors(bars);
+  C.save();
+  C.lineWidth=lw; C.lineCap='round';
+  for (let i=0;i<bars;i++) {
+    const v=sFreq[i*step|0]; if(v<.003) continue;
+    const bh=v*(rMax-r0);
+    const a=i*dA-Math.PI*.5;
+    const cos=Math.cos(a), sin=Math.sin(a);
+    C.strokeStyle = barColors[i]+'1)';
+    C.shadowBlur  = 5+v*16;
+    C.shadowColor = barColors[i]+'1)';
+    C.beginPath();
+    C.moveTo(cx+cos*r0,       cy+sin*r0);
+    C.lineTo(cx+cos*(r0+bh),  cy+sin*(r0+bh));
+    C.stroke();
+  }
+  // centre ring
+  C.strokeStyle=theme.c1; C.lineWidth=1;
+  C.shadowBlur=14+sBass*22; C.shadowColor=theme.c1; C.globalAlpha=.55;
+  C.beginPath(); C.arc(cx,cy,r0,0,Math.PI*2); C.stroke();
+  C.restore();
+}
+
+// ════════════════════════════════════════════════════════════════
+//  VIZ 4 — PARTICLES
+// ════════════════════════════════════════════════════════════════
+function initPart() {
+  for (let i=0;i<NP;i++) {
+    pbx[i]=px[i]=Math.random()*W;
+    pby[i]=py[i]=Math.random()*H;
+    pvx[i]=pvy[i]=0;
+    psz[i]=1.2+Math.random()*2.4;
+  }
+  pInited=true;
+}
+
+function drawPart() {
+  C.fillStyle = tsBg+'0.17)';
+  C.fillRect(0,0,W,H);
+  if (!pInited) initPart();
+  const force = sBass*6.5;
+  const jit   = sTreb*1.8;
+  C.save();
+  for (let i=0;i<NP;i++) {
+    pvx[i]+=(pbx[i]-px[i])*.062;
+    pvy[i]+=(pby[i]-py[i])*.062;
+    if (sBass>.28) {
+      const a=Math.random()*6.2832;
+      pvx[i]+=Math.cos(a)*force;
+      pvy[i]+=Math.sin(a)*force;
+    }
+    pvx[i]+=(Math.random()-.5)*jit;
+    pvy[i]+=(Math.random()-.5)*jit;
+    pvx[i]*=.87; pvy[i]*=.87;
+    px[i]+=pvx[i]; py[i]+=pvy[i];
+    const sp=Math.hypot(pvx[i],pvy[i]);
+    const alpha=Math.min(.32+sp*.1,.96);
+    const sz=psz[i]*(1+sBass*1.8);
+    const col=barColors[i%lastBars||0] || (ts1+','+alpha+')');
+    C.shadowBlur=4+sp*1.4; C.shadowColor=theme.c1;
+    C.fillStyle=col+alpha+')';
+    C.beginPath(); C.arc(px[i],py[i],sz,0,6.2832); C.fill();
+  }
+  C.restore();
+}
+
+// ════════════════════════════════════════════════════════════════
+//  VIZ 5 — ORGANIC BLOB
+// ════════════════════════════════════════════════════════════════
+function drawBlob() {
+  C.clearRect(0,0,W,H);
+  const cx=W*.5, cy=H*.5;
+  const base=Math.min(W,H)*.21;
+  const step=bufLen/BN;
+  // compute blob points once
+  for (let i=0;i<BN;i++) {
+    const a=(i/BN)*Math.PI*2-Math.PI*.5;
+    const v=sFreq[i*step|0];
+    const r=base*(1+v*.92+sBass*.3);
+    bX[i]=cx+Math.cos(a)*r;
+    bY[i]=cy+Math.sin(a)*r;
+  }
+  C.save();
+  // three concentric layers
+  for (let layer=2;layer>=0;layer--) {
+    const sc=1-layer*.1, al=.16+layer*.18;
+    C.beginPath();
+    const ax=cx+(bX[0]-cx)*sc, ay=cy+(bY[0]-cy)*sc;
+    C.moveTo(ax,ay);
+    for (let i=0;i<BN;i++) {
+      const ni=(i+1)%BN;
+      const mx=cx+((bX[i]+bX[ni])*.5-cx)*sc;
+      const my=cy+((bY[i]+bY[ni])*.5-cy)*sc;
+      C.quadraticCurveTo(cx+(bX[i]-cx)*sc, cy+(bY[i]-cy)*sc, mx, my);
+    }
+    C.closePath();
+    const grad=C.createRadialGradient(cx,cy,0,cx,cy,base*2.3);
+    grad.addColorStop(0,   `rgba(${ts1},${al+.12})`);
+    grad.addColorStop(.5,  `rgba(${ts2},${al*.8})`);
+    grad.addColorStop(1,   `rgba(${ts3},0)`);
+    C.shadowBlur=22+sBass*38; C.shadowColor=theme.c1;
+    C.fillStyle=grad;
+    C.fill();
+    if (layer===0) {
+      C.strokeStyle=theme.c1; C.lineWidth=1.5;
+      C.globalAlpha=.75; C.stroke();
+    }
+  }
+  C.restore();
+}
+
+// ════════════════════════════════════════════════════════════════
+//  RENDER LOOP
+// ════════════════════════════════════════════════════════════════
+function render() {
+  requestAnimationFrame(render);
+  if (!started) return;
+  analyse();
+  if (vizMode===0) drawWave();
+  else if (vizMode===1) drawSpectrum();
+  else if (vizMode===2) drawRadial();
+  else if (vizMode===3) drawPart();
+  else                  drawBlob();
+}
+
+// ════════════════════════════════════════════════════════════════
+//  UI HELPERS
+// ════════════════════════════════════════════════════════════════
+let hideTimer=null;
+function showCtrl() {
+  ctrlEl.classList.remove('hide');
+  clearTimeout(hideTimer);
+  hideTimer=setTimeout(()=>ctrlEl.classList.add('hide'),3500);
+}
+
+let labelTimer=null;
+function showVizLabel() {
+  vnEl.textContent=VIZ[vizMode];
+  vnEl.classList.remove('gone');
+  clearTimeout(labelTimer);
+  labelTimer=setTimeout(()=>vnEl.classList.add('gone'),2200);
+}
+
+function setViz(idx) {
+  vizMode=idx;
+  vBtns.forEach(b=>b.classList.toggle('on',+b.dataset.v===idx));
+  showVizLabel();
+}
+
+// ════════════════════════════════════════════════════════════════
+//  EVENT LISTENERS
+// ════════════════════════════════════════════════════════════════
+
+// Start (iOS AudioContext unlock)
+document.getElementById('sb').addEventListener('click', async ()=>{
+  initAudio();
+  if (actx.state==='suspended') await actx.resume();
+  started=true;
+  ovEl.style.display='none';
+  requestAnimationFrame(render);
+  showCtrl();
+});
+
+// File
+bfiEl.addEventListener('click',()=>fiEl.click());
+fiEl.addEventListener('change',e=>{ if(e.target.files[0]) loadFile(e.target.files[0]); fiEl.value=''; });
+
+// Mic
+bmiEl.addEventListener('click',toggleMic);
+
+// Play/Pause
+bplEl.addEventListener('click',()=>{
+  if (!audioEl) return;
+  if (playing) { audioEl.pause(); playing=false; bplEl.textContent='▶'; }
+  else         { actx.resume().then(()=>{ audioEl.play(); playing=true; bplEl.textContent='⏸'; }); }
+});
+
+// Seek
+skbEl.addEventListener('input',()=>{ if(audioEl) audioEl.currentTime=+skbEl.value; });
+
+// Viz buttons
+vBtns.forEach(b=>b.addEventListener('click',()=>setViz(+b.dataset.v)));
+
+// Gain
+gslEl.addEventListener('input',()=>{ gainVal=+gslEl.value; });
+
+// Theme
+bthEl.addEventListener('click',()=>{ themeIdx=(themeIdx+1)%THEMES.length; applyTheme(); });
+
+// FFT
+ffsEl.addEventListener('change',()=>{
+  if (!analyser) return;
+  analyser.fftSize=+ffsEl.value;
+  rebuildBufs();
+});
+
+// Fullscreen
+bfsEl.addEventListener('click',()=>{
+  if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+    (document.documentElement.requestFullscreen||document.documentElement.webkitRequestFullscreen).call(document.documentElement);
+  } else {
+    (document.exitFullscreen||document.webkitExitFullscreen).call(document);
+  }
+});
+
+// Keyboard shortcuts 1-5, F, T, Space
+document.addEventListener('keydown',e=>{
+  if (e.key>='1'&&e.key<='5') { setViz(+e.key-1); showCtrl(); }
+  if (e.key==='f'||e.key==='F') bfsEl.click();
+  if (e.key==='t'||e.key==='T') bthEl.click();
+  if (e.key===' ') { e.preventDefault(); bplEl.click(); }
+});
+
+// Drag & drop
+document.addEventListener('dragover',e=>{ e.preventDefault(); dovEl.classList.add('on'); });
+document.addEventListener('dragleave',e=>{ if(!e.relatedTarget) dovEl.classList.remove('on'); });
+document.addEventListener('drop',e=>{
+  e.preventDefault(); dovEl.classList.remove('on');
+  const file=e.dataTransfer.files[0];
+  if (!file) return;
+  if (!started) {
+    initAudio(); started=true;
+    ovEl.style.display='none';
+    requestAnimationFrame(render);
+  }
+  loadFile(file);
+});
+
+// Show controls on interaction
+[canvas,'mousemove'].forEach(t=>{
+  if (typeof t==='string') document.addEventListener(t,showCtrl);
+  else t.addEventListener('click',showCtrl);
+});
+canvas.addEventListener('touchstart',showCtrl,{passive:true});
+
+// Resize
+window.addEventListener('resize',()=>{ C.setTransform(1,0,0,1,0,0); resize(); });
+
+// ════════════════════════════════════════════════════════════════
+//  BOOTSTRAP
+// ════════════════════════════════════════════════════════════════
+resize();
+applyTheme();
+showVizLabel();
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load',()=>{
+    navigator.serviceWorker.register('sw.js').catch(()=>{});
+  });
+}
+</script>
+</body>
+</html>
