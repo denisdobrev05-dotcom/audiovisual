@@ -151,10 +151,12 @@ const THEMES = [
     r1:[238,238,238], r2:[136,136,136], r3:[85,85,85]   },
 ];
 const VIZ = ['Вълна','Спектър','Радиален','Частици','Blob'];
-const SK  = 0.13;   // exponential-smoothing coeff for FFT data
-const SKB = 0.10;   // band energy smoothing
-const NP  = 280;    // particle count
-const BN  = 180;    // blob segments
+const SK       = 0.13;  // exponential-smoothing coeff for frequency data
+const SKT      = 0.07;  // heavier smoothing for time-domain → smoother waveform
+const SKB      = 0.10;  // band energy smoothing
+const NP       = 280;   // particle count
+const BN       = 180;   // blob segments
+const WAVE_PTS = 256;   // waveform resolution after spatial averaging
 
 // ════════════════════════════════════════════════════════════════
 //  STATE
@@ -188,6 +190,9 @@ let pInited=false;
 
 // Blob (pre-allocated)
 const bX=new Float32Array(BN), bY=new Float32Array(BN);
+
+// Waveform smooth buffer (pre-allocated — spatially averaged time-domain)
+const waveBuf = new Float32Array(WAVE_PTS);
 
 // Pre-computed bar colors (rebuilt on theme/bars change)
 let barColors = [];
@@ -325,7 +330,7 @@ function analyse() {
   const tl = timeBuf.length;
   for (let i=0; i<tl; i++) {
     const v = (timeBuf[i]/128-1)*g;
-    sTime[i] += SK*(v-sTime[i]);
+    sTime[i] += SKT*(v-sTime[i]);  // SKT < SK → heavier smoothing → less jitter
   }
   // Band split: bass 0-8%, mid 8-45%, treble 45-100%
   const b0=bufLen*.08|0, b1=bufLen*.45|0;
@@ -378,30 +383,49 @@ function applyTheme() {
 }
 
 // ════════════════════════════════════════════════════════════════
-//  VIZ 1 — WAVEFORM
+//  VIZ 1 — WAVEFORM  (smooth version)
 // ════════════════════════════════════════════════════════════════
 function drawWave() {
   C.clearRect(0,0,W,H);
-  const tl = sTime.length;
-  const glow = 8+sBass*30;
+  const tl   = sTime.length;
+  const step = Math.max(1,(tl/WAVE_PTS)|0);
+
+  // Spatial average: reduce 2048 raw samples → 256 smooth points (no allocation)
+  for (let i=0;i<WAVE_PTS;i++) {
+    let sum=0;
+    const base=i*step;
+    for (let k=0;k<step;k++) sum+=sTime[base+k];
+    waveBuf[i]=sum/step;
+  }
+
+  const glow=8+sBass*28;
   C.save();
   C.shadowBlur=glow; C.shadowColor=theme.c1;
-  C.strokeStyle=theme.c1; C.lineWidth=2+sBass*3.5;
+  C.strokeStyle=theme.c1; C.lineWidth=2+sBass*3;
   C.lineCap='round'; C.lineJoin='round';
-  C.beginPath();
-  for (let i=0;i<tl;i++) {
-    const x=i/(tl-1)*W, y=H*.5+sTime[i]*H*.38;
-    i?C.lineTo(x,y):C.moveTo(x,y);
+
+  // Main line — quadratic bezier through midpoints for glass-smooth curve
+  let lx=0, ly=H*.5+waveBuf[0]*H*.38;
+  C.beginPath(); C.moveTo(lx,ly);
+  for (let i=1;i<WAVE_PTS;i++) {
+    const x=i/(WAVE_PTS-1)*W, y=H*.5+waveBuf[i]*H*.38;
+    C.quadraticCurveTo(lx,ly,(lx+x)*.5,(ly+y)*.5);
+    lx=x; ly=y;
   }
+  C.lineTo(W,ly);
   C.stroke();
-  // ghost
-  C.globalAlpha=.22; C.lineWidth=1;
+
+  // Ghost (subtle offset copy)
+  C.globalAlpha=.18; C.lineWidth=1;
   C.shadowColor=theme.c2; C.strokeStyle=theme.c2;
-  C.beginPath();
-  for (let i=0;i<tl;i++) {
-    const x=i/(tl-1)*W, y=H*.5+sTime[i]*H*.38+5;
-    i?C.lineTo(x,y):C.moveTo(x,y);
+  lx=0; ly=H*.5+waveBuf[0]*H*.38+5;
+  C.beginPath(); C.moveTo(lx,ly);
+  for (let i=1;i<WAVE_PTS;i++) {
+    const x=i/(WAVE_PTS-1)*W, y=H*.5+waveBuf[i]*H*.38+5;
+    C.quadraticCurveTo(lx,ly,(lx+x)*.5,(ly+y)*.5);
+    lx=x; ly=y;
   }
+  C.lineTo(W,ly);
   C.stroke();
   C.restore();
 }
