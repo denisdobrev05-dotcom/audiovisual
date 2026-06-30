@@ -69,7 +69,7 @@ html,body{
 #ctrl.hide{opacity:0;transform:translateY(100%);pointer-events:none}
 .row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:center}
 
-/* viz buttons row – horizontal scroll on small screens */
+/* viz buttons row */
 #vrow{
   flex-wrap:nowrap;overflow-x:auto;justify-content:flex-start;
   -webkit-overflow-scrolling:touch;scrollbar-width:none;
@@ -98,7 +98,7 @@ html,body{
 .btn.mon{border-color:#ff4444;color:#ff4444;background:rgba(255,68,68,.1);
   box-shadow:0 0 10px rgba(255,68,68,.3)}
 
-/* color dots in Colors button */
+/* color dots */
 .ci{
   display:inline-block;width:8px;height:8px;border-radius:50%;flex-shrink:0
 }
@@ -205,9 +205,31 @@ select{
 .slot.on{border-color:var(--c1);background:rgba(0,255,255,.09);color:var(--c1)}
 .sdot{display:block;width:22px;height:22px;border-radius:50%;border:2px solid rgba(255,255,255,.15);flex-shrink:0}
 
+/* custom color picker row */
+#cprow{
+  display:flex;align-items:center;gap:12px;
+  padding:8px 16px 10px;border-bottom:1px solid rgba(255,255,255,.07)
+}
+#cus-pick{
+  -webkit-appearance:none;appearance:none;
+  width:46px;height:46px;border-radius:12px;
+  border:2px solid rgba(255,255,255,.2);
+  background:none;cursor:pointer;padding:4px;
+  -webkit-tap-highlight-color:transparent;touch-action:manipulation;flex-shrink:0
+}
+#cus-pick::-webkit-color-swatch-wrapper{padding:0;border-radius:8px}
+#cus-pick::-webkit-color-swatch{border:none;border-radius:8px}
+#cus-pick::-moz-color-swatch{border:none;border-radius:8px}
+#cus-lbl{
+  font-size:.78rem;color:rgba(255,255,255,.5);flex:1
+}
+#cus-hint{
+  font-size:.65rem;color:rgba(255,255,255,.28);font-style:italic
+}
+
 /* swatch grid */
 #sw-wrap{
-  padding:10px 14px;max-height:200px;overflow-y:auto;
+  padding:10px 14px;max-height:180px;overflow-y:auto;
   scrollbar-width:none;-webkit-overflow-scrolling:touch
 }
 #sw-wrap::-webkit-scrollbar{display:none}
@@ -264,6 +286,13 @@ select{
     <button class="slot" data-slot="c3"><span class="sdot" id="sd3"></span>Акцент</button>
     <button class="slot" data-slot="bg"><span class="sdot" id="sd4"></span>Фон</button>
   </div>
+  <div id="cprow">
+    <input type="color" id="cus-pick" value="#00ffff">
+    <div>
+      <div id="cus-lbl">Произволен цвят</div>
+      <div id="cus-hint">Натисни за да отвориш пикъра</div>
+    </div>
+  </div>
   <div id="sw-wrap"><div id="sw-grid"></div></div>
   <div id="presets">
     <span class="pal-lbl">Готови теми:</span>
@@ -316,9 +345,6 @@ select{
 <script>
 'use strict';
 
-// ════════════════════════════════════════════════════════════════
-//  CONFIG
-// ════════════════════════════════════════════════════════════════
 const NEON_COLORS = [
   '#ff0055','#ff0088','#ff00bb','#ee00ff',
   '#9900ff','#5500ff','#0044ff','#0088ff',
@@ -337,629 +363,508 @@ const THEMES = [
   { bg:'#000000', c1:'#eeeeee', c2:'#888888', c3:'#555555' },
 ];
 const VIZ = ['Вълна','Спектър','Радиален','Частици','Blob'];
-const SK       = 0.13;
-const SKT      = 0.07;
-const SKB      = 0.10;
-const NP       = 280;
-const BN       = 180;
-const WAVE_PTS = 256;
+const SK=0.13, SKT=0.07, SKB=0.10;
+const NP=280, BN=180, WAVE_PTS=256;
 
-// ════════════════════════════════════════════════════════════════
-//  COLOR STATE
-// ════════════════════════════════════════════════════════════════
-function hexToArr(h) {
-  return [parseInt(h.slice(1,3),16), parseInt(h.slice(3,5),16), parseInt(h.slice(5,7),16)];
+function hexToArr(h){
+  return [parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)];
 }
 
-const cur = {
-  c1:'#00ffff', r1:[0,255,255],
-  c2:'#ff00ff', r2:[255,0,255],
-  c3:'#00ff88', r3:[0,255,136],
-  bg:'#050512', r4:[5,5,18],
+const cur={
+  c1:'#00ffff',r1:[0,255,255],
+  c2:'#ff00ff',r2:[255,0,255],
+  c3:'#00ff88',r3:[0,255,136],
+  bg:'#050512',r4:[5,5,18],
 };
-let activeSlot = 'c1';
+let activeSlot='c1';
 
-// ════════════════════════════════════════════════════════════════
-//  AUDIO STATE
-// ════════════════════════════════════════════════════════════════
-let actx=null, analyser=null, outGain=null;
-let curSrc=null, micStream=null, audioEl=null;
-let isMic=false, playing=false, started=false;
-let vizMode=0, gainVal=1.5;
+let actx=null,analyser=null,outGain=null;
+let curSrc=null,micStream=null,audioEl=null;
+let isMic=false,playing=false,started=false;
+let vizMode=0,gainVal=1.5;
+let fftSize=2048,bufLen=1024;
+let freqBuf=new Uint8Array(bufLen);
+let timeBuf=new Uint8Array(fftSize);
+let sFreq=new Float32Array(bufLen);
+let sTime=new Float32Array(fftSize);
+let sBass=0,sMid=0,sTreb=0;
 
-let fftSize=2048, bufLen=1024;
-let freqBuf = new Uint8Array(bufLen);
-let timeBuf = new Uint8Array(fftSize);
-let sFreq   = new Float32Array(bufLen);
-let sTime   = new Float32Array(fftSize);
-let sBass=0, sMid=0, sTreb=0;
+const canvas=document.getElementById('cv');
+const C=canvas.getContext('2d');
+let W=0,H=0,DPR=1;
 
-const canvas = document.getElementById('cv');
-const C = canvas.getContext('2d');
-let W=0, H=0, DPR=1;
-
-const px=new Float32Array(NP), py=new Float32Array(NP);
-const pvx=new Float32Array(NP), pvy=new Float32Array(NP);
-const pbx=new Float32Array(NP), pby=new Float32Array(NP);
+const px=new Float32Array(NP),py=new Float32Array(NP);
+const pvx=new Float32Array(NP),pvy=new Float32Array(NP);
+const pbx=new Float32Array(NP),pby=new Float32Array(NP);
 const psz=new Float32Array(NP);
 let pInited=false;
+const bX=new Float32Array(BN),bY=new Float32Array(BN);
+const waveBuf=new Float32Array(WAVE_PTS);
+let barColors=[],lastBars=0;
+let tsBg='',ts1='',ts2='',ts3='';
 
-const bX=new Float32Array(BN), bY=new Float32Array(BN);
-const waveBuf = new Float32Array(WAVE_PTS);
+const ovEl=document.getElementById('ov');
+const dovEl=document.getElementById('dov');
+const vnEl=document.getElementById('vn');
+const ctrlEl=document.getElementById('ctrl');
+const skEl=document.getElementById('sk');
+const skbEl=document.getElementById('skb');
+const tdEl=document.getElementById('td');
+const bfiEl=document.getElementById('bfi');
+const fiEl=document.getElementById('fi');
+const bmiEl=document.getElementById('bmi');
+const bplEl=document.getElementById('bpl');
+const ffsEl=document.getElementById('ffs');
+const gslEl=document.getElementById('gsl');
+const bfsEl=document.getElementById('bfs');
+const vBtns=[...document.querySelectorAll('[data-v]')];
+const palEl=document.getElementById('pal');
+const palBgEl=document.getElementById('pal-bg');
+const btnPalEl=document.getElementById('btn-pal');
+const slotBtns=[...document.querySelectorAll('.slot')];
+const ci1El=document.getElementById('ci1');
+const ci2El=document.getElementById('ci2');
+const ci3El=document.getElementById('ci3');
+const sd1El=document.getElementById('sd1');
+const sd2El=document.getElementById('sd2');
+const sd3El=document.getElementById('sd3');
+const sd4El=document.getElementById('sd4');
+const swGrid=document.getElementById('sw-grid');
+const cusPickEl=document.getElementById('cus-pick');
 
-let barColors = [];
-let lastBars  = 0;
-let tsBg='', ts1='', ts2='', ts3='';
-
-// DOM refs
-const ovEl    = document.getElementById('ov');
-const dovEl   = document.getElementById('dov');
-const vnEl    = document.getElementById('vn');
-const ctrlEl  = document.getElementById('ctrl');
-const skEl    = document.getElementById('sk');
-const skbEl   = document.getElementById('skb');
-const tdEl    = document.getElementById('td');
-const bfiEl   = document.getElementById('bfi');
-const fiEl    = document.getElementById('fi');
-const bmiEl   = document.getElementById('bmi');
-const bplEl   = document.getElementById('bpl');
-const ffsEl   = document.getElementById('ffs');
-const gslEl   = document.getElementById('gsl');
-const bfsEl   = document.getElementById('bfs');
-const vBtns   = [...document.querySelectorAll('[data-v]')];
-const palEl   = document.getElementById('pal');
-const palBgEl = document.getElementById('pal-bg');
-const btnPalEl= document.getElementById('btn-pal');
-const slotBtns= [...document.querySelectorAll('.slot')];
-const ci1El   = document.getElementById('ci1');
-const ci2El   = document.getElementById('ci2');
-const ci3El   = document.getElementById('ci3');
-const sd1El   = document.getElementById('sd1');
-const sd2El   = document.getElementById('sd2');
-const sd3El   = document.getElementById('sd3');
-const sd4El   = document.getElementById('sd4');
-const swGrid  = document.getElementById('sw-grid');
-
-// ════════════════════════════════════════════════════════════════
-//  AUDIO
-// ════════════════════════════════════════════════════════════════
-function initAudio() {
-  if (actx) return;
-  actx = new (window.AudioContext || window.webkitAudioContext)();
-  analyser = actx.createAnalyser();
-  analyser.fftSize = fftSize;
-  analyser.smoothingTimeConstant = 0.82;
-  outGain = actx.createGain();
-  outGain.gain.value = 1;
+// ── AUDIO ──
+function initAudio(){
+  if(actx)return;
+  actx=new(window.AudioContext||window.webkitAudioContext)();
+  analyser=actx.createAnalyser();
+  analyser.fftSize=fftSize;
+  analyser.smoothingTimeConstant=0.82;
+  outGain=actx.createGain();
+  outGain.gain.value=1;
   analyser.connect(outGain);
   outGain.connect(actx.destination);
   rebuildBufs();
 }
-
-function rebuildBufs() {
-  bufLen  = analyser.frequencyBinCount;
-  freqBuf = new Uint8Array(bufLen);
-  sFreq   = new Float32Array(bufLen);
-  timeBuf = new Uint8Array(analyser.fftSize);
-  sTime   = new Float32Array(analyser.fftSize);
-  lastBars = 0;
+function rebuildBufs(){
+  bufLen=analyser.frequencyBinCount;
+  freqBuf=new Uint8Array(bufLen);
+  sFreq=new Float32Array(bufLen);
+  timeBuf=new Uint8Array(analyser.fftSize);
+  sTime=new Float32Array(analyser.fftSize);
+  lastBars=0;
 }
-
-function stopSrc() {
-  if (curSrc)   { try { curSrc.disconnect(); } catch(e){} curSrc=null; }
-  if (audioEl)  { audioEl.pause(); try { URL.revokeObjectURL(audioEl.src); } catch(e){} audioEl=null; }
-  if (micStream){ micStream.getTracks().forEach(t=>t.stop()); micStream=null; }
-  isMic=false; playing=false;
-  bmiEl.className='btn'; bmiEl.innerHTML='🎙 Микрофон';
-  bplEl.style.display='none'; bplEl.innerHTML='▶ Пусни';
+function stopSrc(){
+  if(curSrc){try{curSrc.disconnect();}catch(e){}curSrc=null;}
+  if(audioEl){audioEl.pause();try{URL.revokeObjectURL(audioEl.src);}catch(e){}audioEl=null;}
+  if(micStream){micStream.getTracks().forEach(t=>t.stop());micStream=null;}
+  isMic=false;playing=false;
+  bmiEl.className='btn';bmiEl.innerHTML='🎙 Микрофон';
+  bplEl.style.display='none';bplEl.innerHTML='▶ Пусни';
   skEl.className='';
-  outGain && (outGain.gain.value=1);
+  outGain&&(outGain.gain.value=1);
 }
-
-async function loadFile(file) {
-  if (!actx) return;
-  if (actx.state==='suspended') await actx.resume();
+async function loadFile(file){
+  if(!actx)return;
+  if(actx.state==='suspended')await actx.resume();
   stopSrc();
-  outGain.gain.value = 1;
-  audioEl = new Audio();
-  audioEl.src = URL.createObjectURL(file);
-  const src = actx.createMediaElementSource(audioEl);
+  outGain.gain.value=1;
+  audioEl=new Audio();
+  audioEl.src=URL.createObjectURL(file);
+  const src=actx.createMediaElementSource(audioEl);
   src.connect(analyser);
-  curSrc = src;
-  audioEl.addEventListener('timeupdate', updateSeek);
-  audioEl.addEventListener('ended', ()=>{ playing=false; bplEl.innerHTML='▶ Пусни'; });
-  audioEl.addEventListener('loadedmetadata', ()=>{
-    skbEl.max = audioEl.duration || 100;
-    skEl.className='on'; bplEl.style.display='';
+  curSrc=src;
+  audioEl.addEventListener('timeupdate',updateSeek);
+  audioEl.addEventListener('ended',()=>{playing=false;bplEl.innerHTML='▶ Пусни';});
+  audioEl.addEventListener('loadedmetadata',()=>{
+    skbEl.max=audioEl.duration||100;
+    skEl.className='on';bplEl.style.display='';
   });
   await audioEl.play().catch(()=>{});
-  playing=true; bplEl.innerHTML='⏸ Пауза';
+  playing=true;bplEl.innerHTML='⏸ Пауза';
 }
-
-async function toggleMic() {
-  if (!actx) return;
-  if (actx.state==='suspended') await actx.resume();
-  if (isMic) { stopSrc(); return; }
+async function toggleMic(){
+  if(!actx)return;
+  if(actx.state==='suspended')await actx.resume();
+  if(isMic){stopSrc();return;}
   stopSrc();
-  outGain.gain.value = 0;
-  try {
-    micStream = await navigator.mediaDevices.getUserMedia({audio:true,video:false});
-    const src = actx.createMediaStreamSource(micStream);
+  outGain.gain.value=0;
+  try{
+    micStream=await navigator.mediaDevices.getUserMedia({audio:true,video:false});
+    const src=actx.createMediaStreamSource(micStream);
     src.connect(analyser);
-    curSrc = src; isMic = true;
-    bmiEl.className='btn mon'; bmiEl.innerHTML='🔴 Микрофон вкл.';
-  } catch(err) {
-    outGain.gain.value = 1;
-    alert('Микрофон: ' + err.message);
+    curSrc=src;isMic=true;
+    bmiEl.className='btn mon';bmiEl.innerHTML='🔴 Микрофон вкл.';
+  }catch(err){
+    outGain.gain.value=1;
+    alert('Микрофон: '+err.message);
   }
 }
-
-function updateSeek() {
-  if (!audioEl) return;
-  const t=audioEl.currentTime, d=audioEl.duration||0;
-  skbEl.value = t;
-  tdEl.textContent = fmt(t) + ' / ' + fmt(d);
+function updateSeek(){
+  if(!audioEl)return;
+  const t=audioEl.currentTime,d=audioEl.duration||0;
+  skbEl.value=t;
+  tdEl.textContent=fmt(t)+' / '+fmt(d);
 }
-const fmt = s => { s=~~(s||0); return ~~(s/60)+':'+(''+(s%60)).padStart(2,'0'); };
+const fmt=s=>{s=~~(s||0);return ~~(s/60)+':'+(''+(s%60)).padStart(2,'0');};
 
-// ════════════════════════════════════════════════════════════════
-//  CANVAS
-// ════════════════════════════════════════════════════════════════
-function resize() {
-  DPR = Math.min(window.devicePixelRatio||1, 2);
-  W = window.innerWidth; H = window.innerHeight;
-  canvas.width  = W*DPR; canvas.height = H*DPR;
-  canvas.style.width  = W+'px'; canvas.style.height = H+'px';
+// ── CANVAS ──
+function resize(){
+  DPR=Math.min(window.devicePixelRatio||1,2);
+  W=window.innerWidth;H=window.innerHeight;
+  canvas.width=W*DPR;canvas.height=H*DPR;
+  canvas.style.width=W+'px';canvas.style.height=H+'px';
   C.setTransform(DPR,0,0,DPR,0,0);
-  pInited=false; lastBars=0;
+  pInited=false;lastBars=0;
 }
 
-// ════════════════════════════════════════════════════════════════
-//  ANALYSIS
-// ════════════════════════════════════════════════════════════════
-function analyse() {
-  if (!analyser) return;
+// ── ANALYSIS ──
+function analyse(){
+  if(!analyser)return;
   analyser.getByteFrequencyData(freqBuf);
   analyser.getByteTimeDomainData(timeBuf);
-  const g = gainVal;
-  for (let i=0; i<bufLen; i++) {
-    const v = (freqBuf[i]/255)*g;
-    sFreq[i] += SK*(v-sFreq[i]);
-  }
-  const tl = timeBuf.length;
-  for (let i=0; i<tl; i++) {
-    const v = (timeBuf[i]/128-1)*g;
-    sTime[i] += SKT*(v-sTime[i]);
-  }
-  const b0=bufLen*.08|0, b1=bufLen*.45|0;
+  const g=gainVal;
+  for(let i=0;i<bufLen;i++){const v=(freqBuf[i]/255)*g;sFreq[i]+=SK*(v-sFreq[i]);}
+  const tl=timeBuf.length;
+  for(let i=0;i<tl;i++){const v=(timeBuf[i]/128-1)*g;sTime[i]+=SKT*(v-sTime[i]);}
+  const b0=bufLen*.08|0,b1=bufLen*.45|0;
   let bs=0,ms=0,ts=0;
-  for (let i=0;i<b0;i++)      bs+=sFreq[i];
-  for (let i=b0;i<b1;i++)     ms+=sFreq[i];
-  for (let i=b1;i<bufLen;i++) ts+=sFreq[i];
-  sBass += SKB*(Math.min(bs/b0,2)-sBass);
-  sMid  += SKB*(Math.min(ms/(b1-b0),2)-sMid);
-  sTreb += SKB*(Math.min(ts/(bufLen-b1),2)-sTreb);
+  for(let i=0;i<b0;i++) bs+=sFreq[i];
+  for(let i=b0;i<b1;i++) ms+=sFreq[i];
+  for(let i=b1;i<bufLen;i++) ts+=sFreq[i];
+  sBass+=SKB*(Math.min(bs/b0,2)-sBass);
+  sMid+=SKB*(Math.min(ms/(b1-b0),2)-sMid);
+  sTreb+=SKB*(Math.min(ts/(bufLen-b1),2)-sTreb);
 }
 
-// ════════════════════════════════════════════════════════════════
-//  COLOR HELPERS
-// ════════════════════════════════════════════════════════════════
-function lerpRGB(t) {
-  const [r1,g1,b1]=cur.r1, [r2,g2,b2]=cur.r2, [r3,g3,b3]=cur.r3;
+// ── COLOR HELPERS ──
+function lerpRGB(t){
+  const[r1,g1,b1]=cur.r1,[r2,g2,b2]=cur.r2,[r3,g3,b3]=cur.r3;
   let r,g,b;
-  if (t<.5){const s=t*2; r=r1+s*(r2-r1); g=g1+s*(g2-g1); b=b1+s*(b2-b1);}
-  else     {const s=(t-.5)*2; r=r2+s*(r3-r2); g=g2+s*(g3-g2); b=b2+s*(b3-b2);}
+  if(t<.5){const s=t*2;r=r1+s*(r2-r1);g=g1+s*(g2-g1);b=b1+s*(b2-b1);}
+  else{const s=(t-.5)*2;r=r2+s*(r3-r2);g=g2+s*(g3-g2);b=b2+s*(b3-b2);}
   return `rgba(${r|0},${g|0},${b|0},`;
 }
-
-function rebuildBarColors(bars) {
-  if (bars===lastBars && barColors.length) return;
-  barColors.length = bars;
-  for (let i=0;i<bars;i++) barColors[i] = lerpRGB(i/bars);
-  lastBars = bars;
+function rebuildBarColors(bars){
+  if(bars===lastBars&&barColors.length)return;
+  barColors.length=bars;
+  for(let i=0;i<bars;i++)barColors[i]=lerpRGB(i/bars);
+  lastBars=bars;
 }
 
-// ════════════════════════════════════════════════════════════════
-//  PALETTE LOGIC
-// ════════════════════════════════════════════════════════════════
-function buildSwatches() {
-  swGrid.innerHTML = '';
-  NEON_COLORS.forEach(hex => {
-    const d = document.createElement('div');
-    d.className='sw'; d.style.background=hex; d.dataset.hex=hex;
-    d.addEventListener('click', ()=>pickColor(hex));
+// ── PALETTE ──
+function buildSwatches(){
+  swGrid.innerHTML='';
+  NEON_COLORS.forEach(hex=>{
+    const d=document.createElement('div');
+    d.className='sw';d.style.background=hex;d.dataset.hex=hex;
+    d.addEventListener('click',()=>pickColor(hex));
     swGrid.appendChild(d);
   });
-  const div = document.createElement('div');
+  const div=document.createElement('div');
   div.className='sw-div';
   swGrid.appendChild(div);
-  BG_COLORS.forEach(hex => {
-    const d = document.createElement('div');
-    d.className='sw'; d.style.background=hex; d.dataset.hex=hex;
+  BG_COLORS.forEach(hex=>{
+    const d=document.createElement('div');
+    d.className='sw';d.style.background=hex;d.dataset.hex=hex;
     d.style.border='1px solid rgba(255,255,255,.2)';
-    d.addEventListener('click', ()=>pickColor(hex));
+    d.addEventListener('click',()=>pickColor(hex));
     swGrid.appendChild(d);
   });
 }
-
-function pickColor(hex) {
-  cur[activeSlot] = hex;
-  const arr = hexToArr(hex);
-  if (activeSlot === 'bg') cur.r4 = arr;
-  else cur['r' + activeSlot[1]] = arr;
+function pickColor(hex){
+  cur[activeSlot]=hex;
+  const arr=hexToArr(hex);
+  if(activeSlot==='bg')cur.r4=arr;
+  else cur['r'+activeSlot[1]]=arr;
   applyColors();
 }
-
-function updateSwatchSel() {
-  const current = cur[activeSlot];
-  swGrid.querySelectorAll('.sw').forEach(sw => {
-    sw.classList.toggle('sel', sw.dataset.hex === current);
+function updateSwatchSel(){
+  const current=cur[activeSlot];
+  swGrid.querySelectorAll('.sw').forEach(sw=>{
+    sw.classList.toggle('sel',sw.dataset.hex===current);
   });
+  cusPickEl.value=current.length===7?current:'#000000';
 }
-
-function updateSlotDots() {
-  sd1El.style.background = cur.c1;
-  sd1El.style.boxShadow  = `0 0 7px ${cur.c1}`;
-  sd2El.style.background = cur.c2;
-  sd2El.style.boxShadow  = `0 0 7px ${cur.c2}`;
-  sd3El.style.background = cur.c3;
-  sd3El.style.boxShadow  = `0 0 7px ${cur.c3}`;
-  sd4El.style.background = cur.bg;
-  ci1El.style.background = cur.c1;
-  ci1El.style.boxShadow  = `0 0 5px ${cur.c1}`;
-  ci2El.style.background = cur.c2;
-  ci2El.style.boxShadow  = `0 0 5px ${cur.c2}`;
-  ci3El.style.background = cur.c3;
-  ci3El.style.boxShadow  = `0 0 5px ${cur.c3}`;
+function updateSlotDots(){
+  sd1El.style.background=cur.c1;sd1El.style.boxShadow=`0 0 7px ${cur.c1}`;
+  sd2El.style.background=cur.c2;sd2El.style.boxShadow=`0 0 7px ${cur.c2}`;
+  sd3El.style.background=cur.c3;sd3El.style.boxShadow=`0 0 7px ${cur.c3}`;
+  sd4El.style.background=cur.bg;
+  ci1El.style.background=cur.c1;ci1El.style.boxShadow=`0 0 5px ${cur.c1}`;
+  ci2El.style.background=cur.c2;ci2El.style.boxShadow=`0 0 5px ${cur.c2}`;
+  ci3El.style.background=cur.c3;ci3El.style.boxShadow=`0 0 5px ${cur.c3}`;
+  // update picker border to reflect current slot color
+  cusPickEl.style.borderColor=cur[activeSlot];
 }
-
-function applyColors() {
-  const [r,g,b] = cur.r4;
-  tsBg = `rgba(${r},${g},${b},`;
-  ts1  = cur.r1.join(',');
-  ts2  = cur.r2.join(',');
-  ts3  = cur.r3.join(',');
-  document.documentElement.style.setProperty('--bg', cur.bg);
-  document.documentElement.style.setProperty('--c1', cur.c1);
-  document.documentElement.style.setProperty('--c2', cur.c2);
-  document.documentElement.style.setProperty('--c3', cur.c3);
-  lastBars=0; pInited=false;
+function applyColors(){
+  const[r,g,b]=cur.r4;
+  tsBg=`rgba(${r},${g},${b},`;
+  ts1=cur.r1.join(',');ts2=cur.r2.join(',');ts3=cur.r3.join(',');
+  document.documentElement.style.setProperty('--bg',cur.bg);
+  document.documentElement.style.setProperty('--c1',cur.c1);
+  document.documentElement.style.setProperty('--c2',cur.c2);
+  document.documentElement.style.setProperty('--c3',cur.c3);
+  lastBars=0;pInited=false;
   updateSlotDots();
   updateSwatchSel();
 }
-
-function applyPreset(idx) {
-  const t = THEMES[idx];
-  cur.c1=t.c1; cur.r1=hexToArr(t.c1);
-  cur.c2=t.c2; cur.r2=hexToArr(t.c2);
-  cur.c3=t.c3; cur.r3=hexToArr(t.c3);
-  cur.bg=t.bg; cur.r4=hexToArr(t.bg);
+function applyPreset(idx){
+  const t=THEMES[idx];
+  cur.c1=t.c1;cur.r1=hexToArr(t.c1);
+  cur.c2=t.c2;cur.r2=hexToArr(t.c2);
+  cur.c3=t.c3;cur.r3=hexToArr(t.c3);
+  cur.bg=t.bg;cur.r4=hexToArr(t.bg);
   applyColors();
 }
-
-function openPalette() {
+function openPalette(){
   palEl.classList.add('on');
   palBgEl.classList.add('on');
   updateSwatchSel();
   ctrlEl.classList.remove('hide');
   clearTimeout(hideTimer);
 }
-function closePalette() {
+function closePalette(){
   palEl.classList.remove('on');
   palBgEl.classList.remove('on');
 }
 
-// ════════════════════════════════════════════════════════════════
-//  VIZ 1 — WAVEFORM
-// ════════════════════════════════════════════════════════════════
-function drawWave() {
+// ── VISUALIZERS ──
+function drawWave(){
   C.clearRect(0,0,W,H);
-  const tl   = sTime.length;
-  const step = Math.max(1,(tl/WAVE_PTS)|0);
-  for (let i=0;i<WAVE_PTS;i++) {
-    let sum=0; const base=i*step;
-    for (let k=0;k<step;k++) sum+=sTime[base+k];
+  const tl=sTime.length;
+  const step=Math.max(1,(tl/WAVE_PTS)|0);
+  for(let i=0;i<WAVE_PTS;i++){
+    let sum=0;const base=i*step;
+    for(let k=0;k<step;k++)sum+=sTime[base+k];
     waveBuf[i]=sum/step;
   }
   const glow=8+sBass*28;
   C.save();
-  C.shadowBlur=glow; C.shadowColor=cur.c1;
-  C.strokeStyle=cur.c1; C.lineWidth=2+sBass*3;
-  C.lineCap='round'; C.lineJoin='round';
-  let lx=0, ly=H*.5+waveBuf[0]*H*.38;
-  C.beginPath(); C.moveTo(lx,ly);
-  for (let i=1;i<WAVE_PTS;i++) {
-    const x=i/(WAVE_PTS-1)*W, y=H*.5+waveBuf[i]*H*.38;
+  C.shadowBlur=glow;C.shadowColor=cur.c1;
+  C.strokeStyle=cur.c1;C.lineWidth=2+sBass*3;
+  C.lineCap='round';C.lineJoin='round';
+  let lx=0,ly=H*.5+waveBuf[0]*H*.38;
+  C.beginPath();C.moveTo(lx,ly);
+  for(let i=1;i<WAVE_PTS;i++){
+    const x=i/(WAVE_PTS-1)*W,y=H*.5+waveBuf[i]*H*.38;
     C.quadraticCurveTo(lx,ly,(lx+x)*.5,(ly+y)*.5);
-    lx=x; ly=y;
+    lx=x;ly=y;
   }
-  C.lineTo(W,ly); C.stroke();
-  C.globalAlpha=.18; C.lineWidth=1;
-  C.shadowColor=cur.c2; C.strokeStyle=cur.c2;
-  lx=0; ly=H*.5+waveBuf[0]*H*.38+5;
-  C.beginPath(); C.moveTo(lx,ly);
-  for (let i=1;i<WAVE_PTS;i++) {
-    const x=i/(WAVE_PTS-1)*W, y=H*.5+waveBuf[i]*H*.38+5;
+  C.lineTo(W,ly);C.stroke();
+  C.globalAlpha=.18;C.lineWidth=1;
+  C.shadowColor=cur.c2;C.strokeStyle=cur.c2;
+  lx=0;ly=H*.5+waveBuf[0]*H*.38+5;
+  C.beginPath();C.moveTo(lx,ly);
+  for(let i=1;i<WAVE_PTS;i++){
+    const x=i/(WAVE_PTS-1)*W,y=H*.5+waveBuf[i]*H*.38+5;
     C.quadraticCurveTo(lx,ly,(lx+x)*.5,(ly+y)*.5);
-    lx=x; ly=y;
+    lx=x;ly=y;
   }
-  C.lineTo(W,ly); C.stroke();
+  C.lineTo(W,ly);C.stroke();
   C.restore();
 }
-
-// ════════════════════════════════════════════════════════════════
-//  VIZ 2 — SPECTRUM
-// ════════════════════════════════════════════════════════════════
-function drawSpectrum() {
+function drawSpectrum(){
   C.clearRect(0,0,W,H);
-  const bars = Math.min(bufLen, Math.floor(W/2.2))|0;
+  const bars=Math.min(bufLen,Math.floor(W/2.2))|0;
   rebuildBarColors(bars);
-  const bw   = W/bars;
-  const step = bufLen/bars;
+  const bw=W/bars,step=bufLen/bars;
   C.globalAlpha=.28;
-  for (let i=0;i<bars;i++) {
-    const v=sFreq[i*step|0]; if(v<.005) continue;
-    C.fillStyle = barColors[i]+'1)';
-    C.fillRect(i*bw, H-v*H*.88, bw*2.5, v*H*.88);
-  }
+  for(let i=0;i<bars;i++){const v=sFreq[i*step|0];if(v<.005)continue;C.fillStyle=barColors[i]+'1)';C.fillRect(i*bw,H-v*H*.88,bw*2.5,v*H*.88);}
   C.globalAlpha=1;
-  const grad = C.createLinearGradient(0,H,0,0);
-  grad.addColorStop(0,  cur.c1);
-  grad.addColorStop(.5, cur.c2);
-  grad.addColorStop(1,  cur.c3);
+  const grad=C.createLinearGradient(0,H,0,0);
+  grad.addColorStop(0,cur.c1);grad.addColorStop(.5,cur.c2);grad.addColorStop(1,cur.c3);
   C.fillStyle=grad;
-  C.shadowColor=cur.c1; C.shadowBlur=6+sMid*18;
-  for (let i=0;i<bars;i++) {
-    const v=sFreq[i*step|0]; if(v<.005) continue;
-    C.fillRect(i*bw+.4, H-v*H*.88, bw-.7, v*H*.88);
-  }
+  C.shadowColor=cur.c1;C.shadowBlur=6+sMid*18;
+  for(let i=0;i<bars;i++){const v=sFreq[i*step|0];if(v<.005)continue;C.fillRect(i*bw+.4,H-v*H*.88,bw-.7,v*H*.88);}
   C.shadowBlur=0;
 }
-
-// ════════════════════════════════════════════════════════════════
-//  VIZ 3 — RADIAL
-// ════════════════════════════════════════════════════════════════
-function drawRadial() {
+function drawRadial(){
   C.clearRect(0,0,W,H);
-  const cx=W*.5, cy=H*.5;
-  const r0   = Math.min(W,H)*.13;
-  const rMax = Math.min(W,H)*.44;
-  const bars = Math.min(bufLen,256)|0;
-  const step = bufLen/bars;
-  const dA   = (Math.PI*2)/bars;
-  const lw   = Math.max(1,(Math.PI*2*r0/bars)*.72);
+  const cx=W*.5,cy=H*.5;
+  const r0=Math.min(W,H)*.13,rMax=Math.min(W,H)*.44;
+  const bars=Math.min(bufLen,256)|0,step=bufLen/bars;
+  const dA=(Math.PI*2)/bars,lw=Math.max(1,(Math.PI*2*r0/bars)*.72);
   rebuildBarColors(bars);
-  C.save();
-  C.lineWidth=lw; C.lineCap='round';
-  for (let i=0;i<bars;i++) {
-    const v=sFreq[i*step|0]; if(v<.003) continue;
-    const bh=v*(rMax-r0);
-    const a=i*dA-Math.PI*.5;
-    const cos=Math.cos(a), sin=Math.sin(a);
-    C.strokeStyle = barColors[i]+'1)';
-    C.shadowBlur  = 5+v*16;
-    C.shadowColor = barColors[i]+'1)';
-    C.beginPath();
-    C.moveTo(cx+cos*r0,      cy+sin*r0);
-    C.lineTo(cx+cos*(r0+bh), cy+sin*(r0+bh));
-    C.stroke();
+  C.save();C.lineWidth=lw;C.lineCap='round';
+  for(let i=0;i<bars;i++){
+    const v=sFreq[i*step|0];if(v<.003)continue;
+    const bh=v*(rMax-r0),a=i*dA-Math.PI*.5;
+    const cos=Math.cos(a),sin=Math.sin(a);
+    C.strokeStyle=barColors[i]+'1)';C.shadowBlur=5+v*16;C.shadowColor=barColors[i]+'1)';
+    C.beginPath();C.moveTo(cx+cos*r0,cy+sin*r0);C.lineTo(cx+cos*(r0+bh),cy+sin*(r0+bh));C.stroke();
   }
-  C.strokeStyle=cur.c1; C.lineWidth=1;
-  C.shadowBlur=14+sBass*22; C.shadowColor=cur.c1; C.globalAlpha=.55;
-  C.beginPath(); C.arc(cx,cy,r0,0,Math.PI*2); C.stroke();
+  C.strokeStyle=cur.c1;C.lineWidth=1;
+  C.shadowBlur=14+sBass*22;C.shadowColor=cur.c1;C.globalAlpha=.55;
+  C.beginPath();C.arc(cx,cy,r0,0,Math.PI*2);C.stroke();
   C.restore();
 }
-
-// ════════════════════════════════════════════════════════════════
-//  VIZ 4 — PARTICLES
-// ════════════════════════════════════════════════════════════════
-function initPart() {
-  for (let i=0;i<NP;i++) {
-    pbx[i]=px[i]=Math.random()*W;
-    pby[i]=py[i]=Math.random()*H;
-    pvx[i]=pvy[i]=0;
-    psz[i]=1.2+Math.random()*2.4;
+function initPart(){
+  for(let i=0;i<NP;i++){
+    pbx[i]=px[i]=Math.random()*W;pby[i]=py[i]=Math.random()*H;
+    pvx[i]=pvy[i]=0;psz[i]=1.2+Math.random()*2.4;
   }
   pInited=true;
 }
-
-function drawPart() {
-  C.fillStyle = tsBg+'0.17)';
-  C.fillRect(0,0,W,H);
-  if (!pInited) initPart();
+function drawPart(){
+  C.fillStyle=tsBg+'0.17)';C.fillRect(0,0,W,H);
+  if(!pInited)initPart();
   rebuildBarColors(NP);
-  const force = sBass*6.5;
-  const jit   = sTreb*1.8;
+  const force=sBass*6.5,jit=sTreb*1.8;
   C.save();
-  for (let i=0;i<NP;i++) {
-    pvx[i]+=(pbx[i]-px[i])*.062;
-    pvy[i]+=(pby[i]-py[i])*.062;
-    if (sBass>.28) {
-      const a=Math.random()*6.2832;
-      pvx[i]+=Math.cos(a)*force;
-      pvy[i]+=Math.sin(a)*force;
-    }
-    pvx[i]+=(Math.random()-.5)*jit;
-    pvy[i]+=(Math.random()-.5)*jit;
-    pvx[i]*=.87; pvy[i]*=.87;
-    px[i]+=pvx[i]; py[i]+=pvy[i];
+  for(let i=0;i<NP;i++){
+    pvx[i]+=(pbx[i]-px[i])*.062;pvy[i]+=(pby[i]-py[i])*.062;
+    if(sBass>.28){const a=Math.random()*6.2832;pvx[i]+=Math.cos(a)*force;pvy[i]+=Math.sin(a)*force;}
+    pvx[i]+=(Math.random()-.5)*jit;pvy[i]+=(Math.random()-.5)*jit;
+    pvx[i]*=.87;pvy[i]*=.87;px[i]+=pvx[i];py[i]+=pvy[i];
     const sp=Math.hypot(pvx[i],pvy[i]);
     const alpha=Math.min(.32+sp*.1,.96);
     const sz=psz[i]*(1+sBass*1.8);
-    C.shadowBlur=4+sp*1.4; C.shadowColor=cur.c1;
-    C.fillStyle = barColors[i%NP] + alpha + ')';
-    C.beginPath(); C.arc(px[i],py[i],sz,0,6.2832); C.fill();
+    C.shadowBlur=4+sp*1.4;C.shadowColor=cur.c1;
+    C.fillStyle=barColors[i%NP]+alpha+')';
+    C.beginPath();C.arc(px[i],py[i],sz,0,6.2832);C.fill();
   }
   C.restore();
 }
-
-// ════════════════════════════════════════════════════════════════
-//  VIZ 5 — BLOB
-// ════════════════════════════════════════════════════════════════
-function drawBlob() {
+function drawBlob(){
   C.clearRect(0,0,W,H);
-  const cx=W*.5, cy=H*.5;
-  const base=Math.min(W,H)*.21;
-  const step=bufLen/BN;
-  for (let i=0;i<BN;i++) {
-    const a=(i/BN)*Math.PI*2-Math.PI*.5;
-    const v=sFreq[i*step|0];
+  const cx=W*.5,cy=H*.5;
+  const base=Math.min(W,H)*.21,step=bufLen/BN;
+  for(let i=0;i<BN;i++){
+    const a=(i/BN)*Math.PI*2-Math.PI*.5,v=sFreq[i*step|0];
     const r=base*(1+v*.92+sBass*1.4);
-    bX[i]=cx+Math.cos(a)*r;
-    bY[i]=cy+Math.sin(a)*r;
+    bX[i]=cx+Math.cos(a)*r;bY[i]=cy+Math.sin(a)*r;
   }
   C.save();
-  for (let layer=2;layer>=0;layer--) {
-    const sc=1-layer*.1, al=.16+layer*.18;
+  for(let layer=2;layer>=0;layer--){
+    const sc=1-layer*.1,al=.16+layer*.18;
     C.beginPath();
-    C.moveTo(cx+(bX[0]-cx)*sc, cy+(bY[0]-cy)*sc);
-    for (let i=0;i<BN;i++) {
+    C.moveTo(cx+(bX[0]-cx)*sc,cy+(bY[0]-cy)*sc);
+    for(let i=0;i<BN;i++){
       const ni=(i+1)%BN;
       const mx=cx+((bX[i]+bX[ni])*.5-cx)*sc;
       const my=cy+((bY[i]+bY[ni])*.5-cy)*sc;
-      C.quadraticCurveTo(cx+(bX[i]-cx)*sc, cy+(bY[i]-cy)*sc, mx, my);
+      C.quadraticCurveTo(cx+(bX[i]-cx)*sc,cy+(bY[i]-cy)*sc,mx,my);
     }
     C.closePath();
     const grad=C.createRadialGradient(cx,cy,0,cx,cy,base*2.3);
-    grad.addColorStop(0,   `rgba(${ts1},${al+.12})`);
-    grad.addColorStop(.5,  `rgba(${ts2},${al*.8})`);
-    grad.addColorStop(1,   `rgba(${ts3},0)`);
-    C.shadowBlur=18+sBass*90; C.shadowColor=cur.c1;
-    C.fillStyle=grad; C.fill();
-    if (layer===0) {
-      C.strokeStyle=cur.c1; C.lineWidth=1.5;
-      C.globalAlpha=.75; C.stroke();
-    }
+    grad.addColorStop(0,`rgba(${ts1},${al+.12})`);
+    grad.addColorStop(.5,`rgba(${ts2},${al*.8})`);
+    grad.addColorStop(1,`rgba(${ts3},0)`);
+    C.shadowBlur=18+sBass*90;C.shadowColor=cur.c1;
+    C.fillStyle=grad;C.fill();
+    if(layer===0){C.strokeStyle=cur.c1;C.lineWidth=1.5;C.globalAlpha=.75;C.stroke();}
   }
   C.restore();
 }
 
-// ════════════════════════════════════════════════════════════════
-//  RENDER LOOP
-// ════════════════════════════════════════════════════════════════
-function render() {
+// ── RENDER LOOP ──
+function render(){
   requestAnimationFrame(render);
-  if (!started) return;
+  if(!started)return;
   analyse();
-  if      (vizMode===0) drawWave();
-  else if (vizMode===1) drawSpectrum();
-  else if (vizMode===2) drawRadial();
-  else if (vizMode===3) drawPart();
-  else                  drawBlob();
+  if(vizMode===0)drawWave();
+  else if(vizMode===1)drawSpectrum();
+  else if(vizMode===2)drawRadial();
+  else if(vizMode===3)drawPart();
+  else drawBlob();
 }
 
-// ════════════════════════════════════════════════════════════════
-//  UI HELPERS
-// ════════════════════════════════════════════════════════════════
+// ── UI HELPERS ──
 let hideTimer=null;
-function showCtrl() {
+function showCtrl(){
   ctrlEl.classList.remove('hide');
   clearTimeout(hideTimer);
-  hideTimer=setTimeout(()=>{ if(!palEl.classList.contains('on')) ctrlEl.classList.add('hide'); },8000);
+  hideTimer=setTimeout(()=>{if(!palEl.classList.contains('on'))ctrlEl.classList.add('hide');},8000);
 }
-
 let labelTimer=null;
-function showVizLabel() {
+function showVizLabel(){
   vnEl.textContent=VIZ[vizMode];
   vnEl.classList.remove('gone');
   clearTimeout(labelTimer);
   labelTimer=setTimeout(()=>vnEl.classList.add('gone'),2200);
 }
-
-function setViz(idx) {
+function setViz(idx){
   vizMode=idx;
   vBtns.forEach(b=>b.classList.toggle('on',+b.dataset.v===idx));
   showVizLabel();
 }
 
-// ════════════════════════════════════════════════════════════════
-//  EVENTS
-// ════════════════════════════════════════════════════════════════
-document.getElementById('sb').addEventListener('click', async ()=>{
+// ── EVENTS ──
+document.getElementById('sb').addEventListener('click',async()=>{
   initAudio();
-  if (actx.state==='suspended') await actx.resume();
+  if(actx.state==='suspended')await actx.resume();
   started=true;
   ovEl.style.display='none';
   requestAnimationFrame(render);
   showCtrl();
 });
-
 bfiEl.addEventListener('click',()=>fiEl.click());
-fiEl.addEventListener('change',e=>{ if(e.target.files[0]) loadFile(e.target.files[0]); fiEl.value=''; });
+fiEl.addEventListener('change',e=>{if(e.target.files[0])loadFile(e.target.files[0]);fiEl.value='';});
 bmiEl.addEventListener('click',toggleMic);
-
 bplEl.addEventListener('click',()=>{
-  if (!audioEl) return;
-  if (playing) { audioEl.pause(); playing=false; bplEl.innerHTML='▶ Пусни'; }
-  else { actx.resume().then(()=>{ audioEl.play(); playing=true; bplEl.innerHTML='⏸ Пауза'; }); }
+  if(!audioEl)return;
+  if(playing){audioEl.pause();playing=false;bplEl.innerHTML='▶ Пусни';}
+  else{actx.resume().then(()=>{audioEl.play();playing=true;bplEl.innerHTML='⏸ Пауза';});}
 });
-
-skbEl.addEventListener('input',()=>{ if(audioEl) audioEl.currentTime=+skbEl.value; });
+skbEl.addEventListener('input',()=>{if(audioEl)audioEl.currentTime=+skbEl.value;});
 vBtns.forEach(b=>b.addEventListener('click',()=>setViz(+b.dataset.v)));
-gslEl.addEventListener('input',()=>{ gainVal=+gslEl.value; });
+gslEl.addEventListener('input',()=>{gainVal=+gslEl.value;});
 
-// Palette events
-btnPalEl.addEventListener('click',()=>{ openPalette(); });
+// palette
+btnPalEl.addEventListener('click',()=>openPalette());
 document.getElementById('pal-x').addEventListener('click',closePalette);
 palBgEl.addEventListener('click',closePalette);
 slotBtns.forEach(btn=>btn.addEventListener('click',()=>{
   activeSlot=btn.dataset.slot;
   slotBtns.forEach(b=>b.classList.toggle('on',b===btn));
   updateSwatchSel();
+  updateSlotDots();
 }));
-document.querySelectorAll('.tbtn').forEach(b=>
-  b.addEventListener('click',()=>applyPreset(+b.dataset.t))
-);
+document.querySelectorAll('.tbtn').forEach(b=>b.addEventListener('click',()=>applyPreset(+b.dataset.t)));
+
+// free color picker
+cusPickEl.addEventListener('input',()=>pickColor(cusPickEl.value));
 
 ffsEl.addEventListener('change',()=>{
-  if (!analyser) return;
+  if(!analyser)return;
   analyser.fftSize=+ffsEl.value;
   rebuildBufs();
 });
-
 bfsEl.addEventListener('click',()=>{
-  if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+  if(!document.fullscreenElement&&!document.webkitFullscreenElement){
     (document.documentElement.requestFullscreen||document.documentElement.webkitRequestFullscreen).call(document.documentElement);
-  } else {
+  }else{
     (document.exitFullscreen||document.webkitExitFullscreen).call(document);
   }
 });
-
 document.addEventListener('keydown',e=>{
-  if (e.key>='1'&&e.key<='5') { setViz(+e.key-1); showCtrl(); }
-  if (e.key==='f'||e.key==='F') bfsEl.click();
-  if (e.key==='c'||e.key==='C') openPalette();
-  if (e.key===' ') { e.preventDefault(); bplEl.click(); }
-  if (e.key==='Escape') closePalette();
+  if(e.key>='1'&&e.key<='5'){setViz(+e.key-1);showCtrl();}
+  if(e.key==='f'||e.key==='F')bfsEl.click();
+  if(e.key==='c'||e.key==='C')openPalette();
+  if(e.key===' '){e.preventDefault();bplEl.click();}
+  if(e.key==='Escape')closePalette();
 });
-
-document.addEventListener('dragover',e=>{ e.preventDefault(); dovEl.classList.add('on'); });
-document.addEventListener('dragleave',e=>{ if(!e.relatedTarget) dovEl.classList.remove('on'); });
+document.addEventListener('dragover',e=>{e.preventDefault();dovEl.classList.add('on');});
+document.addEventListener('dragleave',e=>{if(!e.relatedTarget)dovEl.classList.remove('on');});
 document.addEventListener('drop',e=>{
-  e.preventDefault(); dovEl.classList.remove('on');
+  e.preventDefault();dovEl.classList.remove('on');
   const file=e.dataTransfer.files[0];
-  if (!file) return;
-  if (!started) { initAudio(); started=true; ovEl.style.display='none'; requestAnimationFrame(render); }
+  if(!file)return;
+  if(!started){initAudio();started=true;ovEl.style.display='none';requestAnimationFrame(render);}
   loadFile(file);
 });
-
 canvas.addEventListener('click',showCtrl);
 document.addEventListener('mousemove',showCtrl);
 canvas.addEventListener('touchstart',showCtrl,{passive:true});
-window.addEventListener('resize',()=>{ C.setTransform(1,0,0,1,0,0); resize(); });
+window.addEventListener('resize',()=>{C.setTransform(1,0,0,1,0,0);resize();});
 
-// ════════════════════════════════════════════════════════════════
-//  BOOTSTRAP
-// ════════════════════════════════════════════════════════════════
+// ── BOOTSTRAP ──
 buildSwatches();
 applyColors();
 resize();
 showVizLabel();
-
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load',()=>{
-    navigator.serviceWorker.register('sw.js').catch(()=>{});
-  });
+if('serviceWorker' in navigator){
+  window.addEventListener('load',()=>{navigator.serviceWorker.register('sw.js').catch(()=>{});});
 }
 </script>
 </body>
