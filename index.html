@@ -547,46 +547,48 @@ function drawSpectrum(){
 function drawRadial(){
   C.clearRect(0,0,W,H);
   const cx=W*.5,cy=H*.5,sz=Math.min(W,H);
-  const r0base=sz*.14,rMax=sz*.47;
-  // Inner ring pulses outward with bass
-  const r0=r0base*(1+sBass*.38);
-  // Slow rotation — speeds up on bass hits for constant visual movement
-  radialAngle+=0.0008+sBass*0.011;
-  const bars=Math.min(bufLen,256)|0,step=bufLen/bars;
-  const dA=(Math.PI*2)/bars,lw=Math.max(1.5,(Math.PI*2*r0base/bars)*.85);
+  const r0base=sz*.14,rMax=sz*.46;
+  // Inner ring grows with bass
+  const r0=r0base*(1+sBass*.26);
+  // Slow rotation, accelerates on bass hits
+  radialAngle+=0.0009+sBass*0.010;
+  const bars=Math.min(bufLen,256)|0;
+  const dA=(Math.PI*2)/bars,lw=Math.max(1.5,(Math.PI*2*r0base/bars)*.82);
   rebuildBarColors(bars);
   C.save();
 
-  // Pulsing center glow that beats strongly with bass
-  const glowR=r0base*(0.9+sBass*3.1);
+  // Center glow pulses strongly with bass
+  const glowR=r0base*(0.88+sBass*2.9);
   const gr=C.createRadialGradient(cx,cy,0,cx,cy,glowR);
-  gr.addColorStop(0,`rgba(${ts1},${Math.min(0.75,0.05+sBass*.92)})`);
-  gr.addColorStop(.42,`rgba(${ts2},${Math.min(0.28,sBass*.34)})`);
+  gr.addColorStop(0,`rgba(${ts1},${Math.min(0.72,0.04+sBass*.90)})`);
+  gr.addColorStop(.40,`rgba(${ts2},${Math.min(0.24,sBass*.30)})`);
   gr.addColorStop(1,'rgba(0,0,0,0)');
   C.fillStyle=gr;C.beginPath();C.arc(cx,cy,glowR,0,Math.PI*2);C.fill();
 
-  // Frequency bars
-  // Key: blend 55% smoothed + 45% raw for much faster visual response
+  // Log-frequency mapping: bass notes get far more bars = individual notes visible
+  // Each bar's frequency bin increases geometrically (not linearly)
+  const logBase=Math.pow(bufLen,1/bars);
+  const tl=timeBuf.length;
   C.lineWidth=lw;C.lineCap='round';
-  const rawScale=gainVal*0.45,smScale=0.55;
   for(let i=0;i<bars;i++){
-    const si=i*step|0;
-    const raw=sFreq[si]*smScale+(freqBuf[si]/255)*rawScale;
-    if(raw<.006)continue;
+    // Log-scaled bin: gives ~50 bars to bass, ~50 to low-mid, rest to mid+high
+    const si=Math.min(bufLen-1,Math.max(0,Math.round(Math.pow(logBase,i))-1));
+    // 45% smoothed + 55% raw current frame = fast visual response
+    const raw=sFreq[si]*0.45+(freqBuf[si]/255)*gainVal*0.55;
+    if(raw<.007)continue;
     const frac=i/bars;
-    // Frequency-dependent height scale: bass gets strongest boost
-    let scale;
-    if(frac<.10)scale=1.7+sBass*2.4;       // sub-bass: huge reaction
-    else if(frac<.28)scale=1.35+sBass*.80; // bass/low-mid
-    else if(frac<.58)scale=1.18+sMid*.52;  // mid
-    else scale=1.02+sTreb*.40;             // treble
-    // Power curve: makes quiet sounds visible too
-    const v=Math.pow(raw,.65)*scale;
-    const bh=Math.min(v*(rMax-r0),(rMax-r0)*.98);
+    // Gentle flat scale — natural frequency peaks show individual notes
+    // No per-bar sBass average: avoids all bass bars being same height
+    const scale=frac<.12?1.08:frac<.30?0.96:frac<.58?0.84:0.74;
+    const v=Math.pow(raw,.74)*scale;
+    // Per-bar time-domain shimmer: each bar has unique micro-movement from waveform
+    const tw=(timeBuf[(si*3+5)%tl]/128-1)*gainVal*0.055;
+    // Hard cap at 70%: bars never reach the outer ring edge
+    const bh=Math.min((v+tw)*(rMax-r0),(rMax-r0)*.70);
+    if(bh<1)continue;
     const a=i*dA-Math.PI*.5+radialAngle;
     const ca=Math.cos(a),sa=Math.sin(a);
-    // Bass bars get extra strong glow
-    const glow=8+raw*46+(frac<.12?sBass*58:sTreb*15);
+    const glow=5+v*34+(frac<.12?sBass*42:sTreb*10);
     C.strokeStyle=barColors[i]+'1)';
     C.shadowBlur=glow;C.shadowColor=barColors[i]+'1)';
     C.beginPath();
@@ -595,25 +597,10 @@ function drawRadial(){
     C.stroke();
   }
 
-  // Inner ring — pulses with bass (radius + brightness)
+  // Inner ring pulses in radius and brightness with bass
   C.lineWidth=1.8;C.strokeStyle=cur.c1;
-  C.shadowBlur=14+sBass*80;C.shadowColor=cur.c1;C.globalAlpha=.50+sBass*.40;
+  C.shadowBlur=14+sBass*78;C.shadowColor=cur.c1;C.globalAlpha=.50+sBass*.36;
   C.beginPath();C.arc(cx,cy,r0,0,Math.PI*2);C.stroke();
-
-  // Outer waveform ring — time domain signal = most reactive, no smoothing delay
-  const tl=sTime.length,rO=rMax*1.12,wAmp=sz*.085;
-  C.globalAlpha=.36+sTreb*.22;C.lineWidth=1.4;
-  C.strokeStyle=cur.c3;C.shadowBlur=4+sTreb*20;C.shadowColor=cur.c3;
-  C.beginPath();
-  const tStep=tl/bars|0;
-  for(let i=0;i<=bars;i++){
-    const idx=i%bars,a=idx*dA-Math.PI*.5+radialAngle;
-    const tw=sTime[idx*tStep];
-    const r=rO+tw*wAmp;
-    const x=cx+Math.cos(a)*r,y=cy+Math.sin(a)*r;
-    i===0?C.moveTo(x,y):C.lineTo(x,y);
-  }
-  C.closePath();C.stroke();
 
   C.restore();
 }
@@ -671,7 +658,7 @@ let labelTimer=null;
 function showVizLabel(){vnEl.textContent=VIZ[vizMode];vnEl.classList.remove('gone');clearTimeout(labelTimer);labelTimer=setTimeout(()=>vnEl.classList.add('gone'),2200);}
 function setViz(idx){
   vizMode=idx;
-  // Lower smoothing for Radial so bars react much faster to music
+  // Radial gets lower smoothing so bars react faster to music
   if(analyser)analyser.smoothingTimeConstant=idx===2?0.62:0.82;
   vBtns.forEach(b=>b.classList.toggle('on',+b.dataset.v===idx));
   showVizLabel();
