@@ -545,19 +545,68 @@ function drawSpectrum(){
 }
 function drawRadial(){
   C.clearRect(0,0,W,H);
-  const cx=W*.5,cy=H*.5,r0=Math.min(W,H)*.13,rMax=Math.min(W,H)*.44;
+  const cx=W*.5,cy=H*.5,sz=Math.min(W,H);
+  const r0base=sz*.14,rMax=sz*.46;
+  // inner ring pulses outward with bass
+  const r0=r0base*(1+sBass*.30);
   const bars=Math.min(bufLen,256)|0,step=bufLen/bars;
-  const dA=(Math.PI*2)/bars,lw=Math.max(1,(Math.PI*2*r0/bars)*.72);
+  const dA=(Math.PI*2)/bars,lw=Math.max(1.5,(Math.PI*2*r0base/bars)*.82);
   rebuildBarColors(bars);
-  C.save();C.lineWidth=lw;C.lineCap='round';
+  C.save();
+
+  // Pulsing center glow that beats with bass
+  const glowR=r0base*(0.85+sBass*2.6);
+  const gr=C.createRadialGradient(cx,cy,0,cx,cy,glowR);
+  gr.addColorStop(0,`rgba(${ts1},${Math.min(0.60,0.06+sBass*.72)})`);
+  gr.addColorStop(.45,`rgba(${ts2},${Math.min(0.20,sBass*.24)})`);
+  gr.addColorStop(1,'rgba(0,0,0,0)');
+  C.fillStyle=gr;C.beginPath();C.arc(cx,cy,glowR,0,Math.PI*2);C.fill();
+
+  // Frequency bars with frequency-dependent scaling
+  C.lineWidth=lw;C.lineCap='round';
   for(let i=0;i<bars;i++){
-    const v=sFreq[i*step|0];if(v<.003)continue;
-    const bh=v*(rMax-r0),a=i*dA-Math.PI*.5,cos=Math.cos(a),sin=Math.sin(a);
-    C.strokeStyle=barColors[i]+'1)';C.shadowBlur=5+v*16;C.shadowColor=barColors[i]+'1)';
-    C.beginPath();C.moveTo(cx+cos*r0,cy+sin*r0);C.lineTo(cx+cos*(r0+bh),cy+sin*(r0+bh));C.stroke();
+    const raw=sFreq[i*step|0];if(raw<.004)continue;
+    const frac=i/bars;
+    // Bass bars get the most boost, mids medium, treble least
+    let scale;
+    if(frac<.12)scale=1.45+sBass*1.6;      // sub-bass / bass
+    else if(frac<.30)scale=1.20+sBass*.55; // low-mid
+    else if(frac<.60)scale=1.10+sMid*.42;  // mid
+    else scale=1.0+sTreb*.32;              // high / treble
+    // Non-linear curve: quiet sounds become more visible
+    const v=Math.pow(raw,.70)*scale;
+    const bh=Math.min(v*(rMax-r0),(rMax-r0)*.97);
+    const a=i*dA-Math.PI*.5,ca=Math.cos(a),sa=Math.sin(a);
+    // Bass bars glow much stronger
+    const glow=7+raw*40+(frac<.15?sBass*44:sTreb*12);
+    C.strokeStyle=barColors[i]+'1)';
+    C.shadowBlur=glow;C.shadowColor=barColors[i]+'1)';
+    C.beginPath();
+    C.moveTo(cx+ca*r0,cy+sa*r0);
+    C.lineTo(cx+ca*(r0+bh),cy+sa*(r0+bh));
+    C.stroke();
   }
-  C.strokeStyle=cur.c1;C.lineWidth=1;C.shadowBlur=14+sBass*22;C.shadowColor=cur.c1;C.globalAlpha=.55;
+
+  // Inner ring — brightness and radius pulse with bass
+  C.lineWidth=1.5;C.strokeStyle=cur.c1;
+  C.shadowBlur=12+sBass*70;C.shadowColor=cur.c1;C.globalAlpha=.55+sBass*.3;
   C.beginPath();C.arc(cx,cy,r0,0,Math.PI*2);C.stroke();
+
+  // Outer waveform ring — shows the actual audio waveform as a ring
+  const tl=sTime.length,rO=rMax*1.10,wAmp=sz*.075;
+  C.globalAlpha=.32+sTreb*.22;C.lineWidth=1.3;
+  C.strokeStyle=cur.c3;C.shadowBlur=3+sTreb*18;C.shadowColor=cur.c3;
+  C.beginPath();
+  const tStep=tl/bars|0;
+  for(let i=0;i<=bars;i++){
+    const idx=i%bars,a=idx*dA-Math.PI*.5;
+    const tw=sTime[idx*tStep];
+    const r=rO+tw*wAmp;
+    const x=cx+Math.cos(a)*r,y=cy+Math.sin(a)*r;
+    i===0?C.moveTo(x,y):C.lineTo(x,y);
+  }
+  C.closePath();C.stroke();
+
   C.restore();
 }
 function initPart(){
