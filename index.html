@@ -548,17 +548,17 @@ function drawRadial(){
   C.clearRect(0,0,W,H);
   const cx=W*.5,cy=H*.5,sz=Math.min(W,H);
   const r0base=sz*.14,rMax=sz*.46;
-  const r0=r0base*(1+sBass*.26);
+  const r0=r0base*(1+sBass*.22);
   radialAngle+=0.0009+sBass*0.010;
   const bars=Math.min(bufLen,256)|0;
   const dA=(Math.PI*2)/bars,lw=Math.max(1.5,(Math.PI*2*r0base/bars)*.82);
   rebuildBarColors(bars);
   C.save();
 
-  const glowR=r0base*(0.88+sBass*2.9);
+  const glowR=r0base*(0.80+sBass*2.4);
   const gr=C.createRadialGradient(cx,cy,0,cx,cy,glowR);
-  gr.addColorStop(0,`rgba(${ts1},${Math.min(0.72,0.04+sBass*.90)})`);
-  gr.addColorStop(.40,`rgba(${ts2},${Math.min(0.24,sBass*.30)})`);
+  gr.addColorStop(0,`rgba(${ts1},${Math.min(0.60,0.03+sBass*.75)})`);
+  gr.addColorStop(.40,`rgba(${ts2},${Math.min(0.18,sBass*.22)})`);
   gr.addColorStop(1,'rgba(0,0,0,0)');
   C.fillStyle=gr;C.beginPath();C.arc(cx,cy,glowR,0,Math.PI*2);C.fill();
 
@@ -575,16 +575,19 @@ function drawRadial(){
     const raw0=sFreq[si0]*0.45+(freqBuf[si0]/255)*gainVal*0.55;
     const raw1=sFreq[si1]*0.45+(freqBuf[si1]/255)*gainVal*0.55;
     const raw=raw0*(1-t)+raw1*t;
-    if(raw<.006)continue;
+    // Higher threshold cuts low-level hum/noise that would fill all bars
+    if(raw<.05)continue;
     const frac=i/bars;
-    const scale=frac<.25?1.12:frac<.55?1.0:0.90;
-    const v=Math.pow(raw,.70)*scale;
-    const tw=(timeBuf[(i*4+si0*3+5)%tl]/128-1)*gainVal*0.055;
-    const bh=Math.min((v+tw)*(rMax-r0),(rMax-r0)*.70);
+    // Power >1 compresses quiet values — only real bass hits show as tall bars
+    const scale=frac<.25?0.80:frac<.55?0.88:0.78;
+    const v=Math.pow(raw,1.15)*scale;
+    const tw=(timeBuf[(i*4+si0*3+5)%tl]/128-1)*gainVal*0.035;
+    // Cap at 50% so there is always visible headroom above the bars
+    const bh=Math.min((v+tw)*(rMax-r0),(rMax-r0)*.50);
     if(bh<1)continue;
     const a=i*dA-Math.PI*.5+radialAngle;
     const ca=Math.cos(a),sa=Math.sin(a);
-    const glow=8+v*36+sBass*35;
+    const glow=6+v*28+sBass*22;
     C.strokeStyle=barColors[i]+'1)';
     C.shadowBlur=glow;C.shadowColor=barColors[i]+'1)';
     C.beginPath();
@@ -594,7 +597,7 @@ function drawRadial(){
   }
 
   C.lineWidth=1.8;C.strokeStyle=cur.c1;
-  C.shadowBlur=14+sBass*78;C.shadowColor=cur.c1;C.globalAlpha=.50+sBass*.36;
+  C.shadowBlur=12+sBass*60;C.shadowColor=cur.c1;C.globalAlpha=.45+sBass*.30;
   C.beginPath();C.arc(cx,cy,r0,0,Math.PI*2);C.stroke();
 
   C.restore();
