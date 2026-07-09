@@ -1,4 +1,4 @@
-const CACHE = 'av-v5';
+const CACHE = 'av-v6';
 const ASSETS = ['./index.html', './manifest.json', './icon.svg', './sw.js'];
 
 self.addEventListener('install', e => {
